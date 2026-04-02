@@ -19,6 +19,7 @@ import matplotlib.ticker as mticker
 import pandas as pd
 import requests
 from aiogram import Bot, Dispatcher, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
 
@@ -435,6 +436,39 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
     return buf
 
 
+def _buffered_png(buf: io.BytesIO, filename: str) -> BufferedInputFile:
+    buf.seek(0)
+    return BufferedInputFile(buf.getvalue(), filename=filename)
+
+
+async def _send_chart_media(
+    chat_id: int,
+    buf: io.BytesIO,
+    filename: str,
+    caption: str,
+    message_thread_id: int | None = None,
+) -> None:
+    try:
+        await bot.send_photo(
+            chat_id,
+            photo=_buffered_png(buf, filename),
+            caption=caption,
+            parse_mode="HTML",
+            message_thread_id=message_thread_id,
+        )
+    except TelegramBadRequest as e:
+        if "PHOTO_INVALID_DIMENSIONS" not in str(e):
+            raise
+        logger.warning("Photo rejected for %s, retrying as document: %s", filename, e)
+        await bot.send_document(
+            chat_id,
+            document=_buffered_png(buf, filename),
+            caption=caption,
+            parse_mode="HTML",
+            message_thread_id=message_thread_id,
+        )
+
+
 @dp.message(Command("start", "help"))
 async def cmd_start(message: types.Message):
     coins = "\n".join([f"  <code>/liq {s}</code>" for s in WATCHLIST])
@@ -473,17 +507,18 @@ async def cmd_liq(message: types.Message):
         ms = df[df["type"] == "short"]["usd_value"].max()
         ml = df[df["type"] == "long"]["usd_value"].max()
         dec = _dec(price)
+        caption = (
+            f"📊 <b>Liquidation Map — {sym}</b>\n\n"
+            f"💰 Цена: <b>${price:,.{dec}f}</b>\n"
+            f"🟢 Шорт-зона: <b>${ms:,.0f}</b>\n"
+            f"🔴 Лонг-зона:  <b>${ml:,.0f}</b>"
+        )
 
-        await bot.send_photo(
+        await _send_chart_media(
             message.chat.id,
-            photo=BufferedInputFile(buf.read(), filename=f"liq_{sym}.png"),
-            caption=(
-                f"📊 <b>Liquidation Map — {sym}</b>\n\n"
-                f"💰 Цена: <b>${price:,.{dec}f}</b>\n"
-                f"🟢 Шорт-зона: <b>${ms:,.0f}</b>\n"
-                f"🔴 Лонг-зона:  <b>${ml:,.0f}</b>"
-            ),
-            parse_mode="HTML",
+            buf,
+            filename=f"liq_{sym}.png",
+            caption=caption,
             message_thread_id=message.message_thread_id,
         )
     except Exception as e:
@@ -535,16 +570,17 @@ async def auto_alert_loop():
                     buf = build_chart(df, sym, price)
                     emoji = "🟢" if ms > ml else "🔴"
                     dec = _dec(price)
+                    caption = (
+                        f"🚨 <b>АЛЕРТ — {sym}</b>\n\n"
+                        f"{emoji} Мощная зона!\n💰 ${price:,.{dec}f}\n"
+                        f"🟢 ${ms:,.0f}  🔴 ${ml:,.0f}"
+                    )
 
-                    await bot.send_photo(
+                    await _send_chart_media(
                         ALERT_CHAT_ID,
-                        photo=BufferedInputFile(buf.read(), filename=f"alert_{sym}.png"),
-                        caption=(
-                            f"🚨 <b>АЛЕРТ — {sym}</b>\n\n"
-                            f"{emoji} Мощная зона!\n💰 ${price:,.{dec}f}\n"
-                            f"🟢 ${ms:,.0f}  🔴 ${ml:,.0f}"
-                        ),
-                        parse_mode="HTML",
+                        buf,
+                        filename=f"alert_{sym}.png",
+                        caption=caption,
                         message_thread_id=ALERT_TOPIC_ID,
                     )
                 await asyncio.sleep(2)
