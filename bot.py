@@ -405,17 +405,38 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
         label=f"Price: {price:,.{dec}f}",
     )
 
+    y_tick_count = min(18, max(8, int(fig_height // 1.2)))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=8))
+    ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
+
     ax.grid(axis="x", color=grid, linestyle="--", alpha=0.5, linewidth=0.7)
+    ax.grid(axis="y", which="major", color=grid, linestyle=":", alpha=0.35, linewidth=0.6)
+    ax.grid(axis="y", which="minor", color=grid, linestyle=":", alpha=0.18, linewidth=0.4)
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
         spine.set_edgecolor(grid)
 
-    ax.tick_params(colors=text, labelsize=9, length=3)
+    ax.tick_params(axis="x", colors=text, labelsize=9, length=3)
+    ax.tick_params(axis="y", colors=text, labelsize=8, length=3, pad=5)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.{dec}f}"))
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontfamily("monospace")
         label.set_color(text)
+
+    ax.annotate(
+        f"{price:,.{dec}f}",
+        xy=(1.0, price),
+        xycoords=("axes fraction", "data"),
+        xytext=(8, 0),
+        textcoords="offset points",
+        va="center",
+        ha="left",
+        color=gold,
+        fontsize=9,
+        fontfamily="monospace",
+        bbox={"boxstyle": "round,pad=0.2", "facecolor": bg, "edgecolor": gold, "alpha": 0.9},
+    )
 
     ax.set_xlabel("USD Value", color=text, fontsize=11, fontfamily="monospace")
     ax.set_ylabel("Price", color=text, fontsize=11, fontfamily="monospace")
