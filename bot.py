@@ -4,7 +4,12 @@ import logging
 import os
 import random
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
+
+BASE_DIR = Path(__file__).resolve().parent
+os.environ.setdefault("MPLCONFIGDIR", str(BASE_DIR / ".matplotlib"))
+Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
 
 import matplotlib
 
@@ -17,12 +22,28 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
 
+
+def load_local_env(env_path: Path) -> None:
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip("'").strip('"'))
+    except FileNotFoundError:
+        return
+
+
+load_local_env(BASE_DIR / ".env")
+
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALERT_CHAT_ID = int(os.getenv("ALERT_CHAT_ID", "-1003867089540"))
 ALERT_TOPIC_ID = int(os.getenv("ALERT_TOPIC_ID", "17135"))
 ALERT_THRESHOLD = int(os.getenv("ALERT_THRESHOLD", "500000"))
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "8") or "8")
 BINANCE_BASE_URL = os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com").rstrip("/")
+BYBIT_BASE_URL = os.getenv("BYBIT_BASE_URL", "https://api.bybit.com").rstrip("/")
 DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", "0").strip().lower() in {
     "1",
     "true",
@@ -153,7 +174,7 @@ def refresh_proxies():
         logger.warning("Proxy refresh failed: %s", e)
 
 
-def _binance_attempts(include_public: bool = True):
+def _request_attempts(include_public: bool = True):
     attempts = []
 
     configured_proxies = list(CONFIGURED_PROXY_URLS)
@@ -185,7 +206,7 @@ def _probe_binance():
     url = f"{BINANCE_BASE_URL}/fapi/v1/ping"
     results = []
 
-    for attempt_name, proxies in _binance_attempts(include_public=False):
+    for attempt_name, proxies in _request_attempts(include_public=False):
         started = time.monotonic()
         try:
             r = http.get(url, proxies=proxies, timeout=REQUEST_TIMEOUT)
@@ -215,8 +236,9 @@ def _probe_binance():
 
 def _proxy_summary_lines():
     lines = [
-        "🌐 <b>Binance transport</b>",
+        "🌐 <b>Exchange transport</b>",
         f"Base URL: <code>{BINANCE_BASE_URL}</code>",
+        f"Bybit URL: <code>{BYBIT_BASE_URL}</code>",
         f"Timeout: <code>{REQUEST_TIMEOUT:.1f}s</code>",
         f"Direct fallback: <code>{'on' if BINANCE_DIRECT_FALLBACK else 'off'}</code>",
         f"Public proxy fallback: <code>{'on' if PUBLIC_PROXY_FALLBACK else 'off'}</code>",
@@ -258,11 +280,11 @@ def _transport_label():
     return label
 
 
-def binance_get(path, params=None):
-    url = f"{BINANCE_BASE_URL}{path}"
+def exchange_get(source: str, base_url: str, path: str, params=None, include_public: bool = True):
+    url = f"{base_url}{path}"
     last_error = None
 
-    for attempt_name, proxies in _binance_attempts():
+    for attempt_name, proxies in _request_attempts(include_public=include_public):
         try:
             r = http.get(url, params=params, proxies=proxies, timeout=REQUEST_TIMEOUT)
             r.raise_for_status()
@@ -271,38 +293,41 @@ def binance_get(path, params=None):
             return r.json()
         except Exception as e:
             last_error = e
-            logger.warning("Binance request failed via %s: %s", attempt_name, e)
+            logger.warning("%s request failed via %s: %s", source, attempt_name, e)
 
-    logger.error("Binance request failed for %s: %s", url, last_error)
+    logger.error("%s request failed for %s: %s", source, url, last_error)
     return None
 
 
 def get_price(sym: str) -> float:
-    data = binance_get("/fapi/v1/ticker/price", {"symbol": sym})
+    data = exchange_get("Binance", BINANCE_BASE_URL, "/fapi/v1/ticker/price", {"symbol": sym})
     if data and "price" in data:
         return float(data["price"])
 
-    r = http.get(
-        "https://api.bybit.com/v5/market/tickers",
-        params={"category": "linear", "symbol": sym},
-        timeout=10,
+    data = exchange_get(
+        "Bybit",
+        BYBIT_BASE_URL,
+        "/v5/market/tickers",
+        {"category": "linear", "symbol": sym},
     )
-    r.raise_for_status()
-    return float(r.json()["result"]["list"][0]["lastPrice"])
+    if data and data.get("result") and data["result"].get("list"):
+        return float(data["result"]["list"][0]["lastPrice"])
+
+    raise RuntimeError(f"No market price source is reachable for {sym}")
 
 
 def get_oi(sym: str, price: float) -> float:
-    data = binance_get("/fapi/v1/openInterest", {"symbol": sym})
+    data = exchange_get("Binance", BINANCE_BASE_URL, "/fapi/v1/openInterest", {"symbol": sym})
     if data and "openInterest" in data:
         return float(data["openInterest"]) * price
 
     try:
-        r = http.get(
-            "https://api.bybit.com/v5/market/open-interest",
-            params={"category": "linear", "symbol": sym, "intervalTime": "1h", "limit": 1},
-            timeout=10,
+        d = exchange_get(
+            "Bybit",
+            BYBIT_BASE_URL,
+            "/v5/market/open-interest",
+            {"category": "linear", "symbol": sym, "intervalTime": "1h", "limit": 1},
         )
-        d = r.json()
         if d.get("result") and d["result"].get("list"):
             return float(d["result"]["list"][0]["openInterest"]) * price
     except Exception:
