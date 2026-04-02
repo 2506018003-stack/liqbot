@@ -405,8 +405,8 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
         label=f"Price: {price:,.{dec}f}",
     )
 
-    y_tick_count = min(18, max(8, int(fig_height // 1.2)))
-    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=8))
+    y_tick_count = min(30, max(12, int(fig_height // 0.8)))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=12))
     ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
 
     ax.grid(axis="x", color=grid, linestyle="--", alpha=0.5, linewidth=0.7)
