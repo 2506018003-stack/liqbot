@@ -405,8 +405,8 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
         label=f"Price: {price:,.{dec}f}",
     )
 
-    y_tick_count = min(30, max(12, int(fig_height // 0.8)))
-    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=12))
+    y_tick_count = min(50, max(20, int(fig_height // 0.6)))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=20))
     ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
 
     ax.grid(axis="x", color=grid, linestyle="--", alpha=0.5, linewidth=0.7)
@@ -525,14 +525,23 @@ async def cmd_liq(message: types.Message):
     try:
         df, price, sym = build_df(parts[1])
         buf = build_chart(df, sym, price)
-        ms = df[df["type"] == "short"]["usd_value"].max()
-        ml = df[df["type"] == "long"]["usd_value"].max()
+        
+        short_df = df[df["type"] == "short"]
+        long_df = df[df["type"] == "long"]
+        
+        ms = short_df["usd_value"].max()
+        ml = long_df["usd_value"].max()
+        
+        # Цены максимальных зон ликвидации
+        short_max_price = short_df.loc[short_df["usd_value"].idxmax(), "price"]
+        long_max_price = long_df.loc[long_df["usd_value"].idxmax(), "price"]
+        
         dec = _dec(price)
         caption = (
             f"📊 <b>Liquidation Map — {sym}</b>\n\n"
             f"💰 Текущая цена: <b>${price:,.{dec}f}</b>\n"
-            f"🟢 Макс. ликвидация шортов: <b>${ms:,.0f}</b> (при росте цены ↑)\n"
-            f"🔴 Макс. ликвидация лонгов:  <b>${ml:,.0f}</b> (при падении цены ↓)\n\n"
+            f"🟢 Макс. ликвидация шортов: <b>${ms:,.0f}</b> @ ${short_max_price:,.{dec}f} (при росте ↑)\n"
+            f"🔴 Макс. ликвидация лонгов:  <b>${ml:,.0f}</b> @ ${long_max_price:,.{dec}f} (при падении ↓)\n\n"
             f"<i>Где больше — туда цена тянется сильнее</i>"
         )
 
