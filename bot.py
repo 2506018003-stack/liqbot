@@ -530,9 +530,10 @@ async def cmd_liq(message: types.Message):
         dec = _dec(price)
         caption = (
             f"📊 <b>Liquidation Map — {sym}</b>\n\n"
-            f"💰 Цена: <b>${price:,.{dec}f}</b>\n"
-            f"🟢 Шорт-зона: <b>${ms:,.0f}</b>\n"
-            f"🔴 Лонг-зона:  <b>${ml:,.0f}</b>"
+            f"💰 Текущая цена: <b>${price:,.{dec}f}</b>\n"
+            f"🟢 Макс. ликвидация шортов: <b>${ms:,.0f}</b> (при росте цены ↑)\n"
+            f"🔴 Макс. ликвидация лонгов:  <b>${ml:,.0f}</b> (при падении цены ↓)\n\n"
+            f"<i>Где больше — туда цена тянется сильнее</i>"
         )
 
         await _send_chart_media(
@@ -596,8 +597,10 @@ async def auto_alert_loop():
                     dec = _dec(price)
                     caption = (
                         f"🚨 <b>АЛЕРТ — {sym}</b>\n\n"
-                        f"{emoji} Мощная зона!\n💰 ${price:,.{dec}f}\n"
-                        f"🟢 ${ms:,.0f}  🔴 ${ml:,.0f}"
+                        f"{emoji} Мощная зона ликвидации!\n"
+                        f"💰 Цена: ${price:,.{dec}f}\n"
+                        f"🟢 Шорты при росте: ${ms:,.0f}\n"
+                        f"🔴 Лонги при падении: ${ml:,.0f}"
                     )
 
                     await _send_chart_media(
