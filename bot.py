@@ -570,6 +570,9 @@ async def cmd_net(message: types.Message):
 
 @dp.message()
 async def cmd_fallback(message: types.Message):
+    # Don't respond to arbitrary messages in group chats (prevents spam)
+    if message.chat.type in ("group", "supergroup"):
+        return
     await message.reply(
         "Используйте <code>/liq BTC</code>, <code>/proxy</code> или <code>/net</code>.",
         parse_mode="HTML",
