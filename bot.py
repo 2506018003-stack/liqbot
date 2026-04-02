@@ -23,6 +23,12 @@ ALERT_TOPIC_ID = int(os.getenv("ALERT_TOPIC_ID", "17135"))
 ALERT_THRESHOLD = int(os.getenv("ALERT_THRESHOLD", "500000"))
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "8") or "8")
 BINANCE_BASE_URL = os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com").rstrip("/")
+DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 BINANCE_PROXY_URLS_RAW = os.getenv("BINANCE_PROXY_URLS", "")
 BINANCE_PROXY_URL = (
     os.getenv("BINANCE_PROXY_URL")
@@ -476,6 +482,14 @@ async def cmd_net(message: types.Message):
         await wait.delete()
 
 
+@dp.message()
+async def cmd_fallback(message: types.Message):
+    await message.reply(
+        "Используйте <code>/liq BTC</code>, <code>/proxy</code> или <code>/net</code>.",
+        parse_mode="HTML",
+    )
+
+
 async def auto_alert_loop():
     await asyncio.sleep(15)
     refresh_proxies()
@@ -513,8 +527,9 @@ async def auto_alert_loop():
 
 async def main():
     asyncio.create_task(auto_alert_loop())
+    await bot.delete_webhook(drop_pending_updates=DROP_PENDING_UPDATES)
     logger.info("Bot started. Binance transport: %s", _transport_label())
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
 if __name__ == "__main__":
