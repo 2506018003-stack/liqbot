@@ -541,8 +541,8 @@ async def cmd_liq(message: types.Message):
         caption = (
             f"📊 <b>Liquidation Map — {sym}</b>\n\n"
             f"💰 Текущая цена: <b>${price:,.{dec}f}</b>\n"
-            f"🟢 При росте к <b>${short_max_price:,.{dec}f}</b> ликвидируются шорты на <b>${ms:,.0f}</b> ↑\n"
-            f"🔴 При падении к <b>${long_max_price:,.{dec}f}</b> ликвидируются лонги на <b>${ml:,.0f}</b> ↓\n\n"
+            f"🟢 ↑ При росте к <b>${short_max_price:,.{dec}f}</b> общая сумма ликвидаций <b>ШОРТИСТОВ</b> составит <b>${ms:,.0f}</b>\n"
+            f"🔴 ↓ При падении к <b>${long_max_price:,.{dec}f}</b> общая сумма ликвидаций <b>ЛОНГИСТОВ</b> составит <b>${ml:,.0f}</b>\n\n"
             f"<i>Где больше — туда цена тянется сильнее</i>"
         )
 
