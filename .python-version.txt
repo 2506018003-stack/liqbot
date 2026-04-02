@@ -1,1 +1,1 @@
-echo "3.11.9" > ~/liqbot/.python-version
+3.11.9
