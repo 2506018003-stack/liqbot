@@ -538,17 +538,11 @@ async def cmd_liq(message: types.Message):
         
         dec = _dec(price)
         
-        # Находим суммы ликвидаций на конкретных ценах максимальных зон
-        short_max_liq = short_df[short_df["price"] == short_max_price]["usd_value"].sum()
-        long_max_liq = long_df[long_df["price"] == long_max_price]["usd_value"].sum()
-        
         caption = (
             f"📊 <b>Liquidation Map — {sym}</b>\n\n"
             f"💰 Текущая цена: <b>${price:,.{dec}f}</b>\n"
-            f"🟢 Макс. ликвидация шортов на сумму: <b>${ms:,.0f}</b> (при росте ↑), "
-            f"а при росте к <b>${short_max_price:,.{dec}f}</b> сумма ликвидаций шортистов составит: <b>${short_max_liq:,.0f}</b>\n"
-            f"🔴 Макс. ликвидация лонгов на сумму:  <b>${ml:,.0f}</b> (при падении ↓), "
-            f"а при падении к <b>${long_max_price:,.{dec}f}</b> сумма ликвидаций лонгистов составит: <b>${long_max_liq:,.0f}</b>\n\n"
+            f"🟢 При росте к <b>${short_max_price:,.{dec}f}</b> ликвидируются шорты на <b>${ms:,.0f}</b> ↑\n"
+            f"🔴 При падении к <b>${long_max_price:,.{dec}f}</b> ликвидируются лонги на <b>${ml:,.0f}</b> ↓\n\n"
             f"<i>Где больше — туда цена тянется сильнее</i>"
         )
 
