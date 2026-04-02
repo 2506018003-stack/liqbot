@@ -374,6 +374,8 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
     red = "#f23645"
     gold = "#f5c518"
     text = "#d1d4dc"
+    max_render_height = 60
+    max_render_pixels = 9000
 
     df = df.sort_values("price").reset_index(drop=True)
     lo = df[df["type"] == "long"]
@@ -383,8 +385,11 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
     levels = len(df["price"].unique())
     bar_height = (price_range / max(levels, 1)) * 0.75
     dec = _dec(df["price"].max())
+    fig_width = 12
+    fig_height = min(max(8, levels * 0.18), max_render_height)
+    dpi = max(90, min(150, int(max_render_pixels / max(fig_width, fig_height))))
 
-    fig, ax = plt.subplots(figsize=(12, max(8, levels * 0.18)))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     fig.patch.set_facecolor(bg)
     ax.set_facecolor(bg)
 
@@ -424,7 +429,7 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
 
     plt.tight_layout(pad=1.5)
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", dpi=150, facecolor=bg)
+    plt.savefig(buf, format="png", bbox_inches="tight", dpi=dpi, facecolor=bg)
     buf.seek(0)
     plt.close(fig)
     return buf
