@@ -405,8 +405,8 @@ def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
         label=f"Price: {price:,.{dec}f}",
     )
 
-    y_tick_count = min(50, max(20, int(fig_height // 0.6)))
-    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=20))
+    y_tick_count = min(60, max(25, int(fig_height // 0.5)))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=25))
     ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
 
     ax.grid(axis="x", color=grid, linestyle="--", alpha=0.5, linewidth=0.7)
@@ -537,11 +537,18 @@ async def cmd_liq(message: types.Message):
         long_max_price = long_df.loc[long_df["usd_value"].idxmax(), "price"]
         
         dec = _dec(price)
+        
+        # Находим суммы ликвидаций на конкретных ценах максимальных зон
+        short_max_liq = short_df[short_df["price"] == short_max_price]["usd_value"].sum()
+        long_max_liq = long_df[long_df["price"] == long_max_price]["usd_value"].sum()
+        
         caption = (
             f"📊 <b>Liquidation Map — {sym}</b>\n\n"
             f"💰 Текущая цена: <b>${price:,.{dec}f}</b>\n"
-            f"🟢 Макс. ликвидация шортов: <b>${ms:,.0f}</b> @ ${short_max_price:,.{dec}f} (при росте ↑)\n"
-            f"🔴 Макс. ликвидация лонгов:  <b>${ml:,.0f}</b> @ ${long_max_price:,.{dec}f} (при падении ↓)\n\n"
+            f"🟢 Макс. ликвидация шортов на сумму: <b>${ms:,.0f}</b> (при росте ↑), "
+            f"а при росте к <b>${short_max_price:,.{dec}f}</b> сумма ликвидаций шортистов составит: <b>${short_max_liq:,.0f}</b>\n"
+            f"🔴 Макс. ликвидация лонгов на сумму:  <b>${ml:,.0f}</b> (при падении ↓), "
+            f"а при падении к <b>${long_max_price:,.{dec}f}</b> сумма ликвидаций лонгистов составит: <b>${long_max_liq:,.0f}</b>\n\n"
             f"<i>Где больше — туда цена тянется сильнее</i>"
         )
 
