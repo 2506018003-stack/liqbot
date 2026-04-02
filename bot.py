@@ -492,20 +492,20 @@ async def _send_chart_media(
 
 @dp.message(Command("start", "help"))
 async def cmd_start(message: types.Message):
-    coins = "\n".join([f"  <code>/liq {s}</code>" for s in WATCHLIST])
+    coins = " ".join([f"<code>{s}</code>" for s in WATCHLIST])
     await message.answer(
         "📊 <b>Liquidation Map Bot</b>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📌 Отправь <code>/liq BTC</code> или <code>/liq BTCUSDT</code>\n\n"
+        "📌 Отправь <code>/liq BTC</code> или любой тикер:\n"
+        "<i>Примеры: /liq AVAX /liq PEPE /liq WIF</i>\n\n"
         "🩺 Проверка сети: <code>/net</code>\n"
         "🌐 Текущие прокси: <code>/proxy</code>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🗂 <b>Доступные монеты:</b>\n{coins}\n\n"
+        f"⚡ Автоалерты: {coins}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "🟢 Зелёный — шорты ликвидируются → цена растёт\n"
         "🔴 Красный — лонги ликвидируются → цена падает\n"
-        "🟡 Линия — текущая цена\n"
-        "⚡ Автоалерт свыше <b>$500,000</b>",
+        "🟡 Линия — текущая цена",
         parse_mode="HTML",
     )
 
