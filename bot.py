@@ -923,7 +923,7 @@ async def cmd_fallback(message: types.Message):
     await message.reply(
         "Используй:\n"
         "📌 <code>/liq BTC</code> — карта ликвидаций\n"
-        "� <code>/scan</code> — топ магниты по всем монетам\n"
+        "🔍 <code>/scan</code> — топ магниты по всем монетам\n"
         "🏆 <code>/top</code> — самые жирные зоны сейчас\n"
         "📈 <code>/liqstats</code> — реальные ликвидации\n"
         "❓ <code>/help</code> — справка",
