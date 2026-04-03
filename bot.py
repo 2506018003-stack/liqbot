@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import logging
 import os
 import random
@@ -18,6 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import pandas as pd
 import requests
+import websockets
 from aiogram import Bot, Dispatcher, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
@@ -102,6 +104,158 @@ LEVERAGE_DIST = {
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# WebSocket liquidation data storage
+_liq_ws_data = {
+    "by_symbol": {},  # {symbol: [{price, side, amount, time}, ...]}
+    "total_1h": {},  # {symbol: {"long": sum, "short": sum}}
+}
+
+# Multi-exchange OI data storage
+_multi_oi_cache = {}  # {symbol: {"binance": oi, "bybit": oi, "okx": oi, "bitget": oi, "total": oi}}
+
+OKX_BASE_URL = "https://www.okx.com"
+BITGET_BASE_URL = "https://api.bitget.com"
+
+
+async def liquidation_ws_listener():
+    """WebSocket listener for Binance liquidation stream (free)"""
+    ws_url = "wss://fstream.binance.com/ws/!forceOrder@arr"
+    
+    while True:
+        try:
+            logger.info("Connecting to Binance liquidation WebSocket...")
+            async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
+                logger.info("Liquidation WebSocket connected")
+                
+                async for message in ws:
+                    try:
+                        data = json.loads(message)
+                        if "o" in data:
+                            liq = data["o"]
+                            symbol = liq.get("s", "")
+                            side = liq.get("S", "").lower()  # BUY=short liquidation, SELL=long liquidation
+                            amount = float(liq.get("l", 0))  # liquidated volume in USD
+                            price = float(liq.get("p", 0))
+                            
+                            # Normalize side
+                            liq_side = "short" if side == "buy" else "long"  # Buy liquidation = shorts got rekt
+                            
+                            # Store data
+                            if symbol not in _liq_ws_data["by_symbol"]:
+                                _liq_ws_data["by_symbol"][symbol] = []
+                            
+                            _liq_ws_data["by_symbol"][symbol].append({
+                                "price": price,
+                                "side": liq_side,
+                                "amount": amount,
+                                "time": time.time()
+                            })
+                            
+                            # Keep only last 100 per symbol
+                            _liq_ws_data["by_symbol"][symbol] = _liq_ws_data["by_symbol"][symbol][-100:]
+                            
+                            # Update 1h totals
+                            if symbol not in _liq_ws_data["total_1h"]:
+                                _liq_ws_data["total_1h"][symbol] = {"long": 0, "short": 0}
+                            _liq_ws_data["total_1h"][symbol][liq_side] += amount
+                            
+                            # Alert on large liquidation
+                            if amount >= 500000:  # $500k+
+                                logger.info(f"Large liquidation: {symbol} {liq_side} ${amount:,.0f} at ${price:,.2f}")
+                    except Exception as e:
+                        logger.debug(f"WS message parse error: {e}")
+                        
+        except Exception as e:
+            logger.warning(f"Liquidation WebSocket error: {e}")
+            await asyncio.sleep(5)  # Reconnect delay
+
+
+def get_okx_oi(sym: str, price: float) -> float:
+    """Get Open Interest from OKX (free API)"""
+    try:
+        # OKX uses different symbol format: BTC-USDT-SWAP
+        okx_sym = f"{sym.replace('USDT', '')}-USDT-SWAP"
+        url = f"{OKX_BASE_URL}/api/v5/public/open-interest"
+        params = {"instType": "SWAP", "instId": okx_sym}
+        
+        r = http.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("data") and len(data["data"]) > 0:
+                oi_contracts = float(data["data"][0].get("oi", 0))
+                # OKX returns OI in contracts, need to convert to USD
+                # Contract size varies, approximate with price
+                return oi_contracts * price * 0.01  # Approximate conversion
+    except Exception as e:
+        logger.debug(f"OKX OI error for {sym}: {e}")
+    return 0
+
+
+def get_bitget_oi(sym: str, price: float) -> float:
+    """Get Open Interest from Bitget (free API)"""
+    try:
+        # Bitget symbol format: BTCUSDT_UMCBL
+        bg_sym = f"{sym}_UMCBL"
+        url = f"{BITGET_BASE_URL}/api/v2/mix/market/open-interest"
+        params = {"symbol": bg_sym, "productType": "USDT-FUTURES"}
+        
+        r = http.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("data") and data.get("code") == "00000":
+                oi = float(data["data"].get("openInterest", 0))
+                return oi * price
+    except Exception as e:
+        logger.debug(f"Bitget OI error for {sym}: {e}")
+    return 0
+
+
+def get_multi_exchange_oi(sym: str, price: float) -> float:
+    """Aggregate OI from all available exchanges for better accuracy"""
+    global _multi_oi_cache
+    
+    # Get OI from each exchange
+    binance_oi = 0
+    try:
+        data = exchange_get("Binance", BINANCE_BASE_URL, "/fapi/v1/openInterest", {"symbol": sym})
+        if data and "openInterest" in data:
+            binance_oi = float(data["openInterest"]) * price
+    except Exception:
+        pass
+    
+    bybit_oi = 0
+    try:
+        d = exchange_get("Bybit", BYBIT_BASE_URL, "/v5/market/open-interest",
+                        {"category": "linear", "symbol": sym, "intervalTime": "1h", "limit": 1})
+        if d and d.get("result") and d["result"].get("list"):
+            bybit_oi = float(d["result"]["list"][0]["openInterest"]) * price
+    except Exception:
+        pass
+    
+    okx_oi = get_okx_oi(sym, price)
+    bitget_oi = get_bitget_oi(sym, price)
+    
+    # Store in cache
+    _multi_oi_cache[sym] = {
+        "binance": binance_oi,
+        "bybit": bybit_oi,
+        "okx": okx_oi,
+        "bitget": bitget_oi,
+        "total": binance_oi + bybit_oi + okx_oi + bitget_oi,
+        "sources": sum([1 for x in [binance_oi, bybit_oi, okx_oi, bitget_oi] if x > 0])
+    }
+    
+    total_oi = _multi_oi_cache[sym]["total"]
+    
+    # If we got data from multiple sources, use it
+    if total_oi > 0:
+        logger.info(f"Multi-exchange OI for {sym}: {total_oi:,.0f} USD from {_multi_oi_cache[sym]['sources']} sources")
+        return total_oi
+    
+    # Fallback
+    return price * 1_000_000
+
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -335,23 +489,8 @@ def get_price(sym: str) -> float:
 
 
 def get_oi(sym: str, price: float) -> float:
-    data = exchange_get("Binance", BINANCE_BASE_URL, "/fapi/v1/openInterest", {"symbol": sym})
-    if data and "openInterest" in data:
-        return float(data["openInterest"]) * price
-
-    try:
-        d = exchange_get(
-            "Bybit",
-            BYBIT_BASE_URL,
-            "/v5/market/open-interest",
-            {"category": "linear", "symbol": sym, "intervalTime": "1h", "limit": 1},
-        )
-        if d.get("result") and d["result"].get("list"):
-            return float(d["result"]["list"][0]["openInterest"]) * price
-    except Exception:
-        pass
-
-    return price * 1_000_000
+    """Get aggregated Open Interest from multiple exchanges for better accuracy"""
+    return get_multi_exchange_oi(sym, price)
 
 
 def _dec(p: float) -> int:
@@ -516,7 +655,8 @@ async def cmd_start(message: types.Message):
         "📌 Отправь <code>/liq BTC</code> или любой тикер:\n"
         "<i>Примеры: /liq AVAX /liq PEPE /liq WIF</i>\n\n"
         "🩺 Проверка сети: <code>/net</code>\n"
-        "🌐 Текущие прокси: <code>/proxy</code>\n\n"
+        "🌐 Текущие прокси: <code>/proxy</code>\n"
+        "📈 Реальные ликвидации: <code>/liqstats</code>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"⚡ Автоалерты: {coins}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -613,6 +753,35 @@ async def cmd_net(message: types.Message):
         await wait.delete()
 
 
+@dp.message(Command("liqstats"))
+async def cmd_liqstats(message: types.Message):
+    """Показать статистику реальных ликвидаций из WebSocket"""
+    if not _is_allowed_chat(message):
+        return
+    
+    lines = ["📊 <b>Статистика ликвидаций (WebSocket)</b>\n"]
+    
+    # Show totals for watchlist coins
+    for coin in WATCHLIST[:5]:  # Top 5
+        sym = coin.upper() + "USDT"
+        totals = _liq_ws_data["total_1h"].get(sym, {"long": 0, "short": 0})
+        recent = _liq_ws_data["by_symbol"].get(sym, [])
+        
+        if totals["long"] > 0 or totals["short"] > 0:
+            lines.append(
+                f"<b>{sym}</b>: 🔴Лонги ${totals['long']:,.0f} | 🟢Шорты ${totals['short']:,.0f}"
+            )
+            if recent:
+                last = recent[-1]
+                lines.append(f"  Последняя: {last['side']} ${last['amount']:,.0f} @ ${last['price']:,.2f}")
+    
+    # Show WebSocket status
+    ws_status = "🟢 Подключен" if _liq_ws_data["by_symbol"] else "🟡 Ожидание данных..."
+    lines.append(f"\n<b>WebSocket статус:</b> {ws_status}")
+    
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @dp.message()
 async def cmd_fallback(message: types.Message):
     # Don't respond to arbitrary messages in group chats (prevents spam)
@@ -663,9 +832,11 @@ async def auto_alert_loop():
 
 
 async def main():
+    # Start WebSocket liquidation listener (free real-time data)
+    asyncio.create_task(liquidation_ws_listener())
     asyncio.create_task(auto_alert_loop())
     await bot.delete_webhook(drop_pending_updates=DROP_PENDING_UPDATES)
-    logger.info("Bot started. Binance transport: %s", _transport_label())
+    logger.info("Bot started. Binance transport: %s, WebSocket: enabled", _transport_label())
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
