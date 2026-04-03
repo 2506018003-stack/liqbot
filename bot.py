@@ -646,8 +646,8 @@ async def _send_chart_media(
         )
 
 
-@dp.message(Command("start", "help"))
-async def cmd_start(message: types.Message):
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
     coins = " ".join([f"<code>{s}</code>" for s in WATCHLIST])
     await message.answer(
         "📊 <b>Liquidation Map Bot</b>\n\n"
