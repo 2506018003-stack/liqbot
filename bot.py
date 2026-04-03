@@ -527,8 +527,21 @@ async def cmd_start(message: types.Message):
     )
 
 
+def _is_allowed_chat(message: types.Message) -> bool:
+    """Проверка: команды разрешены только в ЛС или в топике 17135"""
+    # В личных сообщениях — разрешено
+    if message.chat.type == "private":
+        return True
+    # В группе только в топике 17135
+    if message.chat.id == ALERT_CHAT_ID and message.message_thread_id == ALERT_TOPIC_ID:
+        return True
+    return False
+
+
 @dp.message(Command("liq"))
 async def cmd_liq(message: types.Message):
+    if not _is_allowed_chat(message):
+        return
     parts = message.text.strip().split()
     if len(parts) < 2:
         await message.reply("⚠️ Пример: <code>/liq BTC</code>", parse_mode="HTML")
@@ -579,11 +592,15 @@ async def cmd_liq(message: types.Message):
 
 @dp.message(Command("proxy"))
 async def cmd_proxy(message: types.Message):
+    if not _is_allowed_chat(message):
+        return
     await message.answer("\n".join(_proxy_summary_lines()), parse_mode="HTML")
 
 
 @dp.message(Command("net"))
 async def cmd_net(message: types.Message):
+    if not _is_allowed_chat(message):
+        return
     wait = await message.reply("⏳ Проверяю доступ к Binance...", parse_mode="HTML")
 
     try:
