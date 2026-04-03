@@ -524,93 +524,161 @@ def build_df(coin: str):
     return grouped, price, sym
 
 
-def build_chart(df: pd.DataFrame, symbol: str, price: float) -> io.BytesIO:
-    bg = "#131722"
-    grid = "#2a2e39"
-    green = "#089981"
-    red = "#f23645"
-    gold = "#f5c518"
-    text = "#d1d4dc"
-    max_render_height = 60
-    max_render_pixels = 9000
-
+def build_chart(df: pd.DataFrame, symbol: str, current_price: float) -> io.BytesIO:
+    """Генерация графика с тепловой раскраской и подписями топ зон"""
     df = df.sort_values("price").reset_index(drop=True)
     lo = df[df["type"] == "long"]
     sh = df[df["type"] == "short"]
+    max_val = df["usd_value"].max()
 
-    price_range = df["price"].max() - df["price"].min()
-    levels = len(df["price"].unique())
-    bar_height = (price_range / max(levels, 1)) * 0.75
-    dec = _dec(df["price"].max())
-    fig_width = 12
-    fig_height = min(max(8, levels * 0.18), max_render_height)
-    dpi = max(90, min(150, int(max_render_pixels / max(fig_width, fig_height))))
-
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    fig.patch.set_facecolor(bg)
-    ax.set_facecolor(bg)
-
-    ax.barh(lo["price"], lo["usd_value"], height=bar_height, color=red, alpha=0.92)
-    ax.barh(sh["price"], sh["usd_value"], height=bar_height, color=green, alpha=0.92)
-    ax.axhline(
-        y=price,
-        color=gold,
-        linewidth=1.2,
-        linestyle="--",
-        alpha=0.9,
-        label=f"Price: {price:,.{dec}f}",
+    # Топ зоны по объёму (топ-3 жёлтые, топ 4-7 оранжевые)
+    top_gold_prices = set(df.nlargest(3, "usd_value")["price"].tolist())
+    top_orange_prices = set(
+        df.nlargest(7, "usd_value").iloc[3:]["price"].tolist()
     )
 
-    y_tick_count = min(60, max(25, int(fig_height // 0.5)))
-    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_tick_count, min_n_ticks=25))
-    ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
+    def bar_color(price_val, side):
+        if price_val in top_gold_prices:
+            return "#f5c518"  # GOLD ★
+        if price_val in top_orange_prices:
+            return "#ef9f27"  # ORANGE ◆
+        return "#f23645" if side == "long" else "#089981"  # RED / GREEN
 
-    ax.grid(axis="x", color=grid, linestyle="--", alpha=0.5, linewidth=0.7)
-    ax.grid(axis="y", which="major", color=grid, linestyle=":", alpha=0.35, linewidth=0.6)
-    ax.grid(axis="y", which="minor", color=grid, linestyle=":", alpha=0.18, linewidth=0.4)
+    def bar_alpha(usd_val):
+        """Градиент прозрачности: маленькие бары тусклее"""
+        ratio = usd_val / max_val if max_val > 0 else 0
+        return max(0.30, 0.30 + 0.65 * ratio)
+
+    pr = df["price"].max() - df["price"].min()
+    nl = len(df["price"].unique())
+    bh = (pr / max(nl, 1)) * 0.75
+    dec = _dec(df["price"].max())
+
+    max_render_height = 60
+    fig_h = min(max(8, nl * 0.18), max_render_height)
+    dpi = max(90, min(150, int(9000 / max(12, fig_h))))
+
+    fig, ax = plt.subplots(figsize=(12, fig_h))
+    fig.patch.set_facecolor("#131722")
+    ax.set_facecolor("#131722")
+
+    # Рисуем бары с тепловой раскраской
+    for _, row in lo.iterrows():
+        ax.barh(row["price"], row["usd_value"], height=bh,
+                color=bar_color(row["price"], "long"),
+                alpha=bar_alpha(row["usd_value"]))
+    for _, row in sh.iterrows():
+        ax.barh(row["price"], row["usd_value"], height=bh,
+                color=bar_color(row["price"], "short"),
+                alpha=bar_alpha(row["usd_value"]))
+
+    # ★ Подписи на топ зонах с % расстоянием от цены
+    annotated = set()
+    for rank, price_val in enumerate(
+        df.nlargest(7, "usd_value")["price"].tolist(), start=1
+    ):
+        if price_val in annotated:
+            continue
+        annotated.add(price_val)
+        zone_val = df[df["price"] == price_val]["usd_value"].sum()
+        pct = (price_val - current_price) / current_price * 100
+        sign = "+" if pct >= 0 else ""
+        star = "★" if rank <= 3 else "◆"
+        color = "#f5c518" if rank <= 3 else "#ef9f27"
+        ax.annotate(
+            f"{star} {sign}{pct:.1f}%  ${zone_val/1000:.0f}k",
+            xy=(zone_val, price_val),
+            xytext=(8, 0), textcoords="offset points",
+            va="center", ha="left",
+            fontsize=8, color=color, fontfamily="monospace",
+            bbox={"boxstyle": "round,pad=0.15", "facecolor": "#131722", "edgecolor": color, "alpha": 0.7},
+        )
+
+    # Линия текущей цены
+    ax.axhline(y=current_price, color="#f5c518", linewidth=1.2, linestyle="--", alpha=0.9,
+               label=f"Price: {current_price:,.{dec}f}")
+    ax.annotate(
+        f"▶ {current_price:,.{dec}f}",
+        xy=(1.0, current_price), xycoords=("axes fraction", "data"),
+        xytext=(8, 0), textcoords="offset points",
+        va="center", ha="left", color="#f5c518", fontsize=9, fontfamily="monospace",
+        bbox={"boxstyle": "round,pad=0.2", "facecolor": "#131722", "edgecolor": "#f5c518", "alpha": 0.9},
+    )
+
+    # Сетка и оформление
+    ax.grid(axis="x", color="#2a2e39", linestyle="--", alpha=0.5, linewidth=0.7)
+    ax.grid(axis="y", which="major", color="#2a2e39", linestyle=":", alpha=0.3, linewidth=0.5)
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
-        spine.set_edgecolor(grid)
+        spine.set_edgecolor("#2a2e39")
 
-    ax.tick_params(axis="x", colors=text, labelsize=9, length=3)
-    ax.tick_params(axis="y", colors=text, labelsize=8, length=3, pad=5)
+    # Оси
+    y_ticks = min(60, max(25, int(fig_h // 0.5)))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=y_ticks, min_n_ticks=25))
+    ax.yaxis.set_minor_locator(mticker.AutoMinorLocator(2))
+    ax.tick_params(axis="x", colors="#d1d4dc", labelsize=9, length=3)
+    ax.tick_params(axis="y", colors="#d1d4dc", labelsize=8, length=3, pad=5)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.{dec}f}"))
-    for label in ax.get_xticklabels() + ax.get_yticklabels():
-        label.set_fontfamily("monospace")
-        label.set_color(text)
+    for lb in ax.get_xticklabels() + ax.get_yticklabels():
+        lb.set_fontfamily("monospace")
+        lb.set_color("#d1d4dc")
 
-    ax.annotate(
-        f"{price:,.{dec}f}",
-        xy=(1.0, price),
-        xycoords=("axes fraction", "data"),
-        xytext=(8, 0),
-        textcoords="offset points",
-        va="center",
-        ha="left",
-        color=gold,
-        fontsize=9,
-        fontfamily="monospace",
-        bbox={"boxstyle": "round,pad=0.2", "facecolor": bg, "edgecolor": gold, "alpha": 0.9},
-    )
+    # Легенда
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor="#f5c518", label="★ Топ-3 магниты"),
+        Patch(facecolor="#ef9f27", label="◆ Топ 4–7 зоны"),
+        Patch(facecolor="#089981", label="Шорты (рост)"),
+        Patch(facecolor="#f23645", label="Лонги (падение)"),
+    ]
+    ax.legend(handles=legend_elements, facecolor="#131722", edgecolor="#2a2e39",
+              labelcolor="#d1d4dc", fontsize=8, loc="upper right")
 
-    ax.set_xlabel("USD Value", color=text, fontsize=11, fontfamily="monospace")
-    ax.set_ylabel("Price", color=text, fontsize=11, fontfamily="monospace")
-    ax.set_title(
-        f"Predicted Liquidation Levels - {symbol}",
-        color=text,
-        fontsize=13,
-        pad=14,
-        fontfamily="monospace",
-    )
-    ax.legend(facecolor=bg, edgecolor=grid, labelcolor=text, fontsize=9, loc="upper right")
+    ax.set_xlabel("USD Value", color="#d1d4dc", fontsize=11, fontfamily="monospace")
+    ax.set_ylabel("Price", color="#d1d4dc", fontsize=11, fontfamily="monospace")
+    ax.set_title(f"Predicted Liquidation Levels — {symbol}",
+                 color="#d1d4dc", fontsize=13, pad=14, fontfamily="monospace")
 
     plt.tight_layout(pad=1.5)
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", dpi=dpi, facecolor=bg)
+    plt.savefig(buf, format="png", bbox_inches="tight", dpi=dpi, facecolor="#131722")
     buf.seek(0)
     plt.close(fig)
     return buf
+
+
+def _imbalance_line(df: pd.DataFrame) -> str:
+    """Строка с индикатором перекоса лонг/шорт"""
+    total_short = df[df["type"] == "short"]["usd_value"].sum()
+    total_long = df[df["type"] == "long"]["usd_value"].sum()
+    total = total_short + total_long
+    if total == 0:
+        return ""
+    short_pct = total_short / total * 100
+    long_pct = total_long / total * 100
+    if short_pct > long_pct:
+        diff = short_pct - long_pct
+        return f"📊 Перекос: 🟢 Шорты {short_pct:.0f}% vs 🔴 Лонги {long_pct:.0f}% (+{diff:.0f}% → вероятен рост)"
+    else:
+        diff = long_pct - short_pct
+        return f"📊 Перекос: 🔴 Лонги {long_pct:.0f}% vs 🟢 Шорты {short_pct:.0f}% (+{diff:.0f}% → вероятно падение)"
+
+
+def _top_zones_text(df: pd.DataFrame, price: float, sym: str) -> str:
+    """Текстовое описание топ-3 зон"""
+    dec = _dec(price)
+    top3 = df.nlargest(3, "usd_value")
+    lines = []
+    for rank, (_, row) in enumerate(top3.iterrows(), 1):
+        pct = (row["price"] - price) / price * 100
+        sign = "+" if pct >= 0 else ""
+        side = "🟢шорты" if row["type"] == "short" else "🔴лонги"
+        lines.append(
+            f"{'★'*rank} ${row['price']:,.{dec}f} ({sign}{pct:.1f}%) "
+            f"— ${row['usd_value']/1000:.0f}k {side}"
+        )
+    return "\n".join(lines)
 
 
 def _buffered_png(buf: io.BytesIO, filename: str) -> BufferedInputFile:
@@ -650,26 +718,24 @@ async def _send_chart_media(
 async def cmd_help(message: types.Message):
     coins = " ".join([f"<code>{s}</code>" for s in WATCHLIST])
     await message.answer(
-        "📊 <b>Liquidation Map Bot</b>\n\n"
-        "<i>Расчётная карта ликвидаций на основе агрегированного OI с 4 бирж</i>\n\n"
+        "📊 <b>Liquidation Map Bot v2</b>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "<b>🎯 Команды:</b>\n\n"
-        "📌 <code>/liq BTC</code> — карта ликвидаций для любого тикера\n"
-        "   <i>Примеры: /liq AVAX /liq PEPE /liq WIF</i>\n\n"
-        "📈 <code>/liqstats</code> — реальные ликвидации (WebSocket)\n"
-        "   <i>Живой поток ликвидаций с Binance</i>\n\n"
-        "🩺 <code>/net</code> — проверка сети и прокси\n"
-        "🌐 <code>/proxy</code> — статус прокси и соединений\n\n"
+        "📌 <b>Команды:</b>\n"
+        "  <code>/liq BTC</code> — карта ликвидаций\n"
+        "  <code>/scan</code> — топ магниты по всем монетам\n"
+        "  <code>/top</code> — самые жирные зоны прямо сейчас\n"
+        "  <code>/liqstats</code> — реальные ликвидации (WS)\n"
+        "  <code>/net</code> — диагностика сети\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚡ Автоалерты: {coins}\n\n"
+        f"⚡ <b>Мониторинг:</b>\n{coins}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "<b>📊 Легенда:</b>\n"
-        "🟢 Зелёный — шорты ликвидируются → цена растёт\n"
-        "🔴 Красный — лонги ликвидируются → цена падает\n"
-        "🟡 Линия — текущая цена\n\n"
-        "<i>Бот работает в ЛС и в топике 17135</i>",
-        parse_mode="HTML",
-    )
+        "🟡 Жёлтый бар — топ магнит (★)\n"
+        "🟠 Оранжевый — сильная зона (◆)\n"
+        "🟢 Зелёный — шорты → цена растёт\n"
+        "🔴 Красный — лонги → цена падает\n"
+        "📊 Подпись у бара = % до цены + объём\n"
+        "⚡ Автоалерт свыше <b>$500,000</b>",
+        parse_mode="HTML")
 
 
 def _is_allowed_chat(message: types.Message) -> bool:
@@ -715,10 +781,11 @@ async def cmd_liq(message: types.Message):
         
         caption = (
             f"📊 <b>Liquidation Map — {sym}</b>\n\n"
-            f"💰 Текущая цена: <b>${price:,.{dec}f}</b>\n"
-            f"🟢 ↑ При росте к <b>${short_max_price:,.{dec}f}</b> общая сумма ликвидаций <b>ШОРТИСТОВ</b> составит <b>${ms:,.0f}</b>\n"
-            f"🔴 ↓ При падении к <b>${long_max_price:,.{dec}f}</b> общая сумма ликвидаций <b>ЛОНГИСТОВ</b> составит <b>${ml:,.0f}</b>\n\n"
-            f"<i>Где больше — туда цена тянется сильнее</i>"
+            f"💰 Цена: <b>${price:,.{dec}f}</b>\n\n"
+            f"🟡 <b>Топ магниты:</b>\n{_top_zones_text(df, price, sym)}\n\n"
+            f"🟢 При росте к <b>${short_max_price:,.{dec}f}</b> — шорты: <b>${ms:,.0f}</b>\n"
+            f"🔴 При падении к <b>${long_max_price:,.{dec}f}</b> — лонги: <b>${ml:,.0f}</b>\n\n"
+            f"{_imbalance_line(df)}"
         )
 
         await _send_chart_media(
@@ -758,6 +825,68 @@ async def cmd_net(message: types.Message):
         await wait.delete()
 
 
+@dp.message(Command("scan"))
+async def cmd_scan(message: types.Message):
+    """Текстовый обзор топ-зон по всем монетам WATCHLIST"""
+    if not _is_allowed_chat(message):
+        return
+    wait = await message.reply("⏳ Сканирую все монеты...", parse_mode="HTML")
+    lines = ["🔍 <b>Scan — топ магниты по всем монетам</b>\n"]
+    for coin in WATCHLIST:
+        try:
+            df, price, sym = build_df(coin)
+            top1 = df.nlargest(1, "usd_value").iloc[0]
+            pct = (top1["price"] - price) / price * 100
+            sign = "+" if pct >= 0 else ""
+            dec = _dec(price)
+            side = "🟢" if top1["type"] == "short" else "🔴"
+            lines.append(
+                f"{side} <b>{sym}</b> ${price:,.{dec}f} "
+                f"→ магнит ${top1['price']:,.{dec}f} ({sign}{pct:.1f}%) "
+                f"${top1['usd_value']/1000:.0f}k"
+            )
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            lines.append(f"⚠️ {coin}: ошибка")
+            logger.warning(f"scan {coin}: {e}")
+    await message.reply("\n".join(lines), parse_mode="HTML")
+    await wait.delete()
+
+
+@dp.message(Command("top"))
+async def cmd_top(message: types.Message):
+    """Топ-5 самых жирных зон прямо сейчас по всем монетам"""
+    if not _is_allowed_chat(message):
+        return
+    wait = await message.reply("⏳ Собираю топ зоны...", parse_mode="HTML")
+    all_zones = []
+    for coin in WATCHLIST:
+        try:
+            df, price, sym = build_df(coin)
+            top1 = df.nlargest(1, "usd_value").iloc[0]
+            pct = (top1["price"] - price) / price * 100
+            all_zones.append({
+                "sym": sym, "price": price, "zone_price": top1["price"],
+                "usd_val": top1["usd_value"], "pct": pct, "type": top1["type"]
+            })
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.warning(f"top {coin}: {e}")
+
+    all_zones.sort(key=lambda x: x["usd_val"], reverse=True)
+    lines = ["🏆 <b>Топ-5 самых жирных зон прямо сейчас</b>\n"]
+    for i, z in enumerate(all_zones[:5], 1):
+        dec = _dec(z["price"])
+        sign = "+" if z["pct"] >= 0 else ""
+        side = "🟢шорты" if z["type"] == "short" else "🔴лонги"
+        lines.append(
+            f"{i}. <b>{z['sym']}</b> — ${z['usd_val']/1000:.0f}k {side}\n"
+            f"   зона ${z['zone_price']:,.{dec}f} ({sign}{z['pct']:.1f}% от цены)"
+        )
+    await message.reply("\n".join(lines), parse_mode="HTML")
+    await wait.delete()
+
+
 @dp.message(Command("liqstats"))
 async def cmd_liqstats(message: types.Message):
     """Показать статистику реальных ликвидаций из WebSocket"""
@@ -789,15 +918,14 @@ async def cmd_liqstats(message: types.Message):
 
 @dp.message()
 async def cmd_fallback(message: types.Message):
-    # Don't respond to arbitrary messages in group chats (prevents spam)
     if message.chat.type in ("group", "supergroup"):
         return
     await message.reply(
-        "Используйте:\n"
+        "Используй:\n"
         "📌 <code>/liq BTC</code> — карта ликвидаций\n"
+        "� <code>/scan</code> — топ магниты по всем монетам\n"
+        "🏆 <code>/top</code> — самые жирные зоны сейчас\n"
         "📈 <code>/liqstats</code> — реальные ликвидации\n"
-        "🩺 <code>/net</code> — проверка сети\n"
-        "🌐 <code>/proxy</code> — статус прокси\n"
         "❓ <code>/help</code> — справка",
         parse_mode="HTML",
     )
