@@ -134,6 +134,15 @@ def _proxy_label(proxy_url: str) -> str:
     return f"{parsed.scheme or 'http'}://{auth}{host}"
 
 
+WEBSHARE_PROXIES = [
+    "http://jbmfxgbs:b6qdned11779@31.59.20.176:6754",
+    "http://jbmfxgbs:b6qdned11779@45.38.107.97:6014",
+    "http://jbmfxgbs:b6qdned11779@198.105.121.200:6462",
+    "http://jbmfxgbs:b6qdned11779@142.111.67.146:5611",
+    "http://jbmfxgbs:b6qdned11779@31.58.9.4:6077",
+]
+
+
 def _load_configured_proxies():
     raw_values = [BINANCE_PROXY_URLS_RAW, BINANCE_PROXY_URL]
     proxies = []
@@ -149,6 +158,14 @@ def _load_configured_proxies():
                 continue
             seen.add(normalized)
             proxies.append(normalized)
+
+    # Use WebShare proxies as fallback if no proxies configured
+    if not proxies:
+        for proxy_url in WEBSHARE_PROXIES:
+            normalized = _normalize_proxy_url(proxy_url)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                proxies.append(normalized)
 
     return proxies
 
