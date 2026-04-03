@@ -651,18 +651,23 @@ async def cmd_start(message: types.Message):
     coins = " ".join([f"<code>{s}</code>" for s in WATCHLIST])
     await message.answer(
         "📊 <b>Liquidation Map Bot</b>\n\n"
+        "<i>Расчётная карта ликвидаций на основе агрегированного OI с 4 бирж</i>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📌 Отправь <code>/liq BTC</code> или любой тикер:\n"
-        "<i>Примеры: /liq AVAX /liq PEPE /liq WIF</i>\n\n"
-        "🩺 Проверка сети: <code>/net</code>\n"
-        "🌐 Текущие прокси: <code>/proxy</code>\n"
-        "📈 Реальные ликвидации: <code>/liqstats</code>\n\n"
+        "<b>🎯 Команды:</b>\n\n"
+        "📌 <code>/liq BTC</code> — карта ликвидаций для любого тикера\n"
+        "   <i>Примеры: /liq AVAX /liq PEPE /liq WIF</i>\n\n"
+        "📈 <code>/liqstats</code> — реальные ликвидации (WebSocket)\n"
+        "   <i>Живой поток ликвидаций с Binance</i>\n\n"
+        "🩺 <code>/net</code> — проверка сети и прокси\n"
+        "🌐 <code>/proxy</code> — статус прокси и соединений\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"⚡ Автоалерты: {coins}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>📊 Легенда:</b>\n"
         "🟢 Зелёный — шорты ликвидируются → цена растёт\n"
         "🔴 Красный — лонги ликвидируются → цена падает\n"
-        "🟡 Линия — текущая цена",
+        "🟡 Линия — текущая цена\n\n"
+        "<i>Бот работает в ЛС и в топике 17135</i>",
         parse_mode="HTML",
     )
 
@@ -788,7 +793,12 @@ async def cmd_fallback(message: types.Message):
     if message.chat.type in ("group", "supergroup"):
         return
     await message.reply(
-        "Используйте <code>/liq BTC</code>, <code>/proxy</code> или <code>/net</code>.",
+        "Используйте:\n"
+        "📌 <code>/liq BTC</code> — карта ликвидаций\n"
+        "📈 <code>/liqstats</code> — реальные ликвидации\n"
+        "🩺 <code>/net</code> — проверка сети\n"
+        "🌐 <code>/proxy</code> — статус прокси\n"
+        "❓ <code>/help</code> — справка",
         parse_mode="HTML",
     )
 
